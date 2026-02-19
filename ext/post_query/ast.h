@@ -97,17 +97,17 @@ namespace post_query {
 
                 return (children.front().get()->*method)();
             } else {
-                std::string res = (children.front().get()->*method)();
+                std::string res;
 
-                for (const ast_ptr& child : children.subspan(1)) {
+                for (const ast_ptr& child : children) {
                     if (add_parens && child->child_count() > 1) {
-                        res += (std::string{ with } + '(' + (child.get()->*method)() + ')');
+                        res += '(' + (child.get()->*method)() + ')' + std::string{ with };
                     } else {
-                        res += (std::string{ with } + (child.get()->*method)());
+                        res += (child.get()->*method)() + std::string{ with };
                     }
                 }
 
-                return res;
+                return res.substr(0, res.size() - with.size());
             }
         }
 
@@ -204,11 +204,65 @@ namespace post_query {
             }
         }
 
-        // Depth-first rewrite
-        //using rewrite_func = std::unique_ptr<ast>(*)(std::unique_ptr<ast>);
-        //virtual std::unique_ptr<ast> rewrite(rewrite_func func) {
+        // This operation mutates the AST
+        void to_cnf() {
+            this->rewrite_opts();
+        }
 
-        //}
+        void rewrite_opts() {
+            rewrite([](ast& node) {
+                switch (node.type()) {
+                    case node_type::Opt: {
+                        // Replace with `or` node with single child
+                        std::vector<ast_ptr> children;
+                        children.emplace_back(std::move(std::get<ast_ptr>(node._data)));
+                        node._type = node_type::Or;
+                        node._data = std::move(children);
+                        break;
+                    }
+
+                    case node_type::And:
+                    case node_type::Or: {
+                        // Gather all opt nodes on the same level and wrap them in a single `or`
+                        auto is_opt = [](const auto& c) { return c->type() == node_type::Opt; };
+                        std::vector<ast_ptr>& children = std::get<std::vector<ast_ptr>>(node._data);
+                        if (std::ranges::find_if(children, is_opt) != children.end()) {
+                            auto non_opts = std::ranges::partition(children, is_opt);
+                            
+                            // Construct an `or` node with the children of each opt node as parent
+                            std::vector<ast_ptr> or_children;
+                            or_children.reserve(children.size() - non_opts.size());
+
+                            for (auto it = children.begin(); it != non_opts.begin(); ++it) {
+                                // Move the child nodes away
+                                or_children.emplace_back(std::move(std::get<ast_ptr>((*it)->_data)));
+                            }
+
+                            // Remove moved-away children, insert new child
+                            if (auto begin = children.begin(); begin != non_opts.begin()) {
+                                children.erase(++begin, non_opts.begin());
+                            }
+                            children[0] = ast::make_or(std::move(or_children));
+                        }
+                    }
+
+                    default:
+                        break;
+                }
+            });
+        }
+
+        template <typename Func> requires requires (Func func, ast& ast) {
+            func(ast);
+        }
+        void rewrite(Func func) {
+            // First rewrite self
+            func(*this);
+
+            for (const ast_ptr& child : children()) {
+                func(*child);
+            }
+        }
 
         static ast_ptr make_all() {
             return ast_ptr{ new ast{ node_type::All, std::monostate{} } };

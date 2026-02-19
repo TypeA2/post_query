@@ -125,12 +125,14 @@ static VALUE post_query_ast_to_infix(VALUE self) {
     return rb_external_str_new_cstr(ast->to_infix().c_str());
 }
 
-/*static VALUE post_query_ast_to_cnf(VALUE self) {
+static VALUE post_query_ast_to_cnf(VALUE self) {
     post_query::ast* ast;
     TypedData_Get_Struct(self, post_query::ast, &ast_type, ast);
 
-    return TypedData_Wrap_Struct(post_query_ast_cls, &ast_type, ast->to_cnf().release());
-}*/
+    ast->to_cnf();
+
+    return self;
+}
 
 /* Module initializer */
 extern "C" void Init_post_query() {
@@ -146,4 +148,5 @@ extern "C" void Init_post_query() {
     rb_define_method(post_query_ast_cls, "to_s", post_query_ast_to_s, 0);
     rb_define_method(post_query_ast_cls, "to_sexp", post_query_ast_to_sexp, 0);
     rb_define_method(post_query_ast_cls, "to_infix", post_query_ast_to_infix, 0);
+    rb_define_method(post_query_ast_cls, "to_cnf", post_query_ast_to_cnf, 0);
 }
