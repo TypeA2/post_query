@@ -2,6 +2,6 @@
 
 require "mkmf"
 
-$CXXFLAGS += "-Wall -std=c++23"
+$CXXFLAGS += "-Wall -std=c++23 -ggdb3"
 
 create_makefile "post_query/post_query"

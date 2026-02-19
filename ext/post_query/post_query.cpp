@@ -9,9 +9,9 @@
 #include <iostream>
 #include <format>
 
-static VALUE post_query_cls = Qnil;
-static VALUE post_query_err = Qnil;
-static VALUE post_query_ast_cls = Qnil;
+VALUE post_query_cls = Qnil;
+VALUE post_query_err = Qnil;
+VALUE post_query_ast_cls = Qnil;
 
 
 /* Ruby type stuff */
@@ -27,12 +27,11 @@ static const rb_data_type_t ast_type {
         .dmark = nullptr,
         .dfree = ast_free,
     },
-    .flags = RUBY_TYPED_FREE_IMMEDIATELY
 };
 
 
 /* Some utilities */
-static std::u8string safe_string(VALUE str) {
+static std::string safe_string(VALUE str) {
     Check_Type(str, T_STRING);
 
     if (int enc = rb_enc_get_index(str); enc != rb_usascii_encindex() && enc != rb_utf8_encindex()) {
@@ -44,7 +43,7 @@ static std::u8string safe_string(VALUE str) {
     }
 
     // Throws when it encounters a null byte
-    return reinterpret_cast<char8_t*>(StringValuePtr(str));
+    return StringValuePtr(str);
 }
 
 
@@ -55,26 +54,85 @@ static VALUE post_query_parse(VALUE self, VALUE _input, VALUE _metatags) {
         return Qnil;
     }
 
-    std::u32string parser_input = encoding::convert<enc::utf32>(safe_string(_input));
+    // Use UTF-16 so that all valid space characters are encoded as 1 character
+    // Surrogate pairs will never overlap as they live in the surrogate range (\uDxxx)
+    std::string parser_input = safe_string(_input);
 
     Check_Type(_metatags, T_ARRAY);
-    std::vector<std::u32string> parser_metatags;
+    std::vector<std::string> parser_metatags;
     parser_metatags.reserve(rb_array_len(_metatags));
 
     for (long i = 0; i < rb_array_len(_metatags); ++i) {
         VALUE tag = rb_ary_entry(_metatags, i);
         Check_Type(tag, T_STRING);
 
-        parser_metatags.emplace_back(encoding::convert<enc::utf32>(safe_string(tag)));
+        parser_metatags.emplace_back(safe_string(tag));
     }
 
     post_query::parser parser { std::move(parser_metatags) };
 
-    auto ast = parser.parse(parser_input);
+    std::unique_ptr<post_query::ast> ast = parser.parse(parser_input);
 
-    return TypedData_Wrap_Struct(post_query_ast_cls, &ast_type, ast.release());
+    return ast ? TypedData_Wrap_Struct(post_query_ast_cls, &ast_type, ast.release()) : Qnil;
 }
 
+static VALUE post_query_ast_inspect(VALUE self) {
+    post_query::ast* ast;
+    TypedData_Get_Struct(self, post_query::ast, &ast_type, ast);
+
+    std::string_view node_type = "Unknown";
+    switch (ast->type()) {
+        case post_query::node_type::All:
+            return rb_external_str_new_cstr("#<PostQuery::AST::All>");
+
+        case post_query::node_type::None:
+            return rb_external_str_new_cstr("#<PostQuery::AST::None>");
+
+        case post_query::node_type::Tag:
+            return rb_sprintf("#<PostQuery::AST::Tag tag=\"%s\">", ast->to_infix().c_str());
+
+        case post_query::node_type::Metatag:  node_type = "Metatag"; break;
+        case post_query::node_type::Wildcard: node_type = "Wildcard"; break;
+        case post_query::node_type::And:      node_type = "And";      break;
+        case post_query::node_type::Or:       node_type = "Or";       break;
+        case post_query::node_type::Not:      node_type = "Not";      break;
+        case post_query::node_type::Opt:      node_type = "Opt";      break;
+    }
+
+    std::stringstream ss;
+    ss << "#<PostQuery::AST::" << node_type << " query=" << std::quoted(ast->to_infix()) << ">";
+    return rb_external_str_new_cstr(ss.str().c_str());
+}
+
+static VALUE post_query_ast_to_s(VALUE self) {
+    post_query::ast* ast;
+    TypedData_Get_Struct(self, post_query::ast, &ast_type, ast);
+
+    return rb_external_str_new_cstr(ast->to_infix().c_str());
+}
+
+static VALUE post_query_ast_to_sexp(VALUE self) {
+    post_query::ast* ast;
+    TypedData_Get_Struct(self, post_query::ast, &ast_type, ast);
+
+    return rb_external_str_new_cstr(ast->to_sexp().c_str());
+}
+
+static VALUE post_query_ast_to_infix(VALUE self) {
+    post_query::ast* ast;
+    TypedData_Get_Struct(self, post_query::ast, &ast_type, ast);
+
+    return rb_external_str_new_cstr(ast->to_infix().c_str());
+}
+
+/*static VALUE post_query_ast_to_cnf(VALUE self) {
+    post_query::ast* ast;
+    TypedData_Get_Struct(self, post_query::ast, &ast_type, ast);
+
+    return TypedData_Wrap_Struct(post_query_ast_cls, &ast_type, ast->to_cnf().release());
+}*/
+
+/* Module initializer */
 extern "C" void Init_post_query() {
     post_query_cls = rb_define_class("PostQuery", rb_cObject);
     post_query_err = rb_define_class_under(post_query_cls, "Error", rb_eStandardError);
@@ -83,4 +141,9 @@ extern "C" void Init_post_query() {
     // No alloc function, only create it internally
     post_query_ast_cls = rb_define_class_under(post_query_cls, "AST", rb_cObject);
     rb_undef_alloc_func(post_query_ast_cls);
+
+    rb_define_method(post_query_ast_cls, "inspect", post_query_ast_inspect, 0);
+    rb_define_method(post_query_ast_cls, "to_s", post_query_ast_to_s, 0);
+    rb_define_method(post_query_ast_cls, "to_sexp", post_query_ast_to_sexp, 0);
+    rb_define_method(post_query_ast_cls, "to_infix", post_query_ast_to_infix, 0);
 }
