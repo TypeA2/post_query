@@ -259,8 +259,9 @@ namespace post_query {
             // First rewrite self
             func(*this);
 
+            // Then all children, which may have been updated
             for (const ast_ptr& child : children()) {
-                func(*child);
+                child->rewrite(func);
             }
         }
 
