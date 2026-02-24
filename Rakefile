@@ -16,3 +16,11 @@ task test: :compile
 Rake::TestTask.new(:test) do |t|
   t.test_files = ["test/test.rb"]
 end
+
+task :valgrind => :compile do
+  sh "valgrind", Gem.ruby, "-Ilib", "test/test.rb"
+end
+
+task :gdb => :compile do
+  sh "gdb", "-q", "--args", Gem.ruby, "-Ilib", "test/test.rb"
+end

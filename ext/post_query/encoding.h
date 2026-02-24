@@ -212,29 +212,16 @@ std::ostream& operator<<(std::ostream& os, char32_t ch) {
 
 namespace encoding {
     // https://www.compart.com/en/unicode/category/Zs
-    static constexpr std::array<char16_t, 17> unicode_spaces {
-        u'\u0020', // Space (SP)
-        u'\u00A0', // No-Break Space (NBSP)
-        u'\u1680', // Ogham Space Mark
-        u'\u2000', // En Quad 
-        u'\u2001', // Em Quad
-        u'\u2002', // En Space
-        u'\u2003', // Em Space
-        u'\u2004', // Three-Per-Em Space
-        u'\u2005', // Four-Per-Em Space
-        u'\u2006', // Six-Per-Em Space
-        u'\u2007', // Figure Space
-        u'\u2008', // Punctuation Space
-        u'\u2009', // Thin Space
-        u'\u200A', // Hair Space
-        u'\u202F', // Narrow No-Break Space (NNBSP)
-        u'\u205F', // Medium Mathematical Space (MMSP)
-        u'\u3000', // Ideographic Space
-    };
-
-    static constexpr std::array<char[4], 17> space_seqs {
-        u8"\u0020\0", // Space (SP)
-        u8"\u00A0\0", // No-Break Space (NBSP)
+    // Plus some other stuff (apparently)
+    static constexpr std::array<char[4], 25> space_seqs {
+        u8"\u0009", // Tab
+        u8"\u000A", // Line feed
+        u8"\u000B", // Vertical tab
+        u8"\u000C", // Form feed
+        u8"\u000D", // Carriage return
+        u8"\u0020", // Space (SP)
+        u8"\u0085", // Next Line (NEL)
+        u8"\u00A0", // No-Break Space (NBSP)
         u8"\u1680", // Ogham Space Mark
         u8"\u2000", // En Quad 
         u8"\u2001", // Em Quad
@@ -247,34 +234,29 @@ namespace encoding {
         u8"\u2008", // Punctuation Space
         u8"\u2009", // Thin Space
         u8"\u200A", // Hair Space
+        u8"\u2028", // Line Separator
+        u8"\u2029", // Paragraph Separator
         u8"\u202F", // Narrow No-Break Space (NNBSP)
         u8"\u205F", // Medium Mathematical Space (MMSP)
         u8"\u3000", // Ideographic Space
     };
-
-    static constexpr bool unicode_space(char16_t chr) {
-        uint8_t lo = chr & 0x00FF;
-        uint16_t hi = chr & 0xFF00;
-
-        switch (hi) {
-            case 0x0000: return lo == 0x20 || lo == 0xA0;
-            case 0x1600: return lo == 0x80;
-            case 0x2000: return lo <= 0x0a || lo == 0x2F || lo == 0x5F;
-            case 0x3000: return lo == 0;
-            default:     return false;
-        } 
-    }
 
     // Input must be an iterator into a null-terminated string
     // This is so that we can read one past the end safely
     static constexpr int unicode_space(std::random_access_iterator auto it) {
         switch (uint8_t(it[0])) {
             // ASCII spaces
+            case 0x09: // Tab
+            case 0x0A: // Line feed
+            case 0x0B: // Vertical tab
+            case 0x0C: // Form feed
+            case 0x0D: // Carriage return
             case 0x20: // Space (SP)
                 return 1;
 
-            case 0b110'000'10: // No-Break Space (NBSP)
-                return (uint8_t(it[1]) == 0b10'10'0000) ? 2 : 0;
+            case 0b110'000'10:
+                // No-Break Space (NBSP) & Next Line
+                return (uint8_t(it[1]) == 0b10'10'0000 || uint8_t(it[1]) == 0b10'00'0101) ? 2 : 0;
 
             // Ogham Space Mark
             case 0b1110'0001:
@@ -284,7 +266,10 @@ namespace encoding {
             case 0b1110'0010:
                 if (uint8_t(it[1]) == 0b10'0000'00) {
                     return ((uint8_t(it[2]) >= 0b10'00'0000 && uint8_t(it[2]) <= 0b10'00'1010)
-                            || (uint8_t(it[2]) == 0b10'10'1111)) ? 3 : 0;
+                            || (uint8_t(it[2]) == 0b10'10'1000)
+                            || (uint8_t(it[2]) == 0b10'10'1001)
+                            || (uint8_t(it[2]) == 0b10'10'1111)
+                        ) ? 3 : 0;
                 } else {
                     return (uint8_t(it[1]) == 0b10'0000'01 && uint8_t(it[2]) == 0b10'01'1111) ? 3 : 0;
                 }
